@@ -97,6 +97,7 @@ static struct list block_list;
 
    It is not safe to call thread_current() until this function
    finishes. */
+
 void
 thread_init (void) 
 {
@@ -105,7 +106,8 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-  /******** Project1 ********/
+
+  /*** Alarm Clock ***/
   list_init (&block_list);
 
   /* Set up a thread structure for the running thread. */
@@ -225,7 +227,8 @@ thread_create (const char *name, int priority,
   
   /* Add to run queue. */
   thread_unblock (t);
-  /******** Project2 ********/
+
+  /*** project2 : Kwak ***/
   check_high_priority();
 
   return tid;
@@ -395,7 +398,7 @@ thread_get_priority (void)
   return thread_current ()->priority;
 }
 
-/******** Advanced Scheduler ********/
+/** Project2 **/
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
@@ -407,7 +410,7 @@ thread_set_nice (int nice UNUSED)
   intr_set_level (old_level);
 }
 
-/******** Advanced Scheduler ********/
+/** Project2 **/
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
@@ -418,7 +421,7 @@ thread_get_nice (void)
   return nice;
 }
 
-/******** Advanced Scheduler ********/
+/** Project2 **/
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
@@ -429,7 +432,7 @@ thread_get_load_avg (void)
   return load_avg_value;
 }
 
-/******** Advanced Scheduler ********/
+/** Project2 **/
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
@@ -712,7 +715,7 @@ set_first_sleep_tick (int64_t ticks){
   }
 }
 
-/******** Project2 ********/
+/** Project2 : Kwak **/
 /* Compare two priority of elem and output is true if first argument is higher one : Kwak, Choi */
 bool
 elem_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
@@ -731,20 +734,6 @@ check_high_priority (void){
   }
 }
 
-/*** project 2 ***/
-/*
-void
-donate_priority (void){
-  int n_depth; //nested_depth
-  struct thread *cur = thread_current ();
-
-  for (n_depth = 0; n_depth < 8; n_depth++){
-    if (!cur->waiting_lock) break;
-      struct thread *holder = cur->waiting_lock->holder;
-      holder->priority = cur->priority;
-      cur = holder;
-  }
-}*/
 void 
 donate_priority (void)
 {

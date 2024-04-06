@@ -142,7 +142,8 @@ void thread_foreach (thread_action_func *, void *);
 int thread_get_priority (void);
 void thread_set_priority (int);
 
-/******** Advanced Scheduler ********/
+
+/*** Advanced Scheduler Values and func ***/
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
