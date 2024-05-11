@@ -171,7 +171,10 @@ thread_create (const char *name, int priority,
   struct switch_entry_frame *ef;
   struct switch_threads_frame *sf;
   tid_t tid;
-  enum intr_level old_level;
+  /* Old */
+  // enum intr_level old_level;
+  /* Kwak */
+  int i;
 
   ASSERT (function != NULL);
 
@@ -187,7 +190,9 @@ thread_create (const char *name, int priority,
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
      member cannot be observed. */
-  old_level = intr_disable ();
+  /* deprecated : Kwak */
+  // old_level = intr_disable ();
+ 
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -204,7 +209,13 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  intr_set_level (old_level);
+  /* old */
+  // intr_set_level (old_level);
+  /* Kwak */
+  t->cur_fd = 2;
+  for (i = 0; i < 128; i++) {
+    t->fd[i] = NULL;
+  }
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -459,6 +470,8 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
+  /* Kwak */
+  int i;
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
@@ -470,6 +483,21 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+
+  /* Kwak, Choi */
+#ifdef USERPROG
+  for (i=0; i<128; i++)
+    t->fd[i] = NULL;
+  t->parent = running_thread();
+  t->exit_status = 0;
+  sema_init (&t->child_lock, 0);
+  sema_init (&t->mem_lock, 0);
+  sema_init (&t->load_lock, 0);
+  list_init (&(t->child));
+  t->flag = 0;
+  list_push_back (&(running_thread()->child), &(t->child_elem));
+#endif
+  /* Kwak, Choi */
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

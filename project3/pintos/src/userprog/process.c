@@ -17,9 +17,13 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+/* Kwak */
+#include <ctype.h>
+#include <stdint.h>
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+void parsing_filename(char *src, char *dest);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -30,6 +34,11 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+  /* Kwak */
+  char parsing_out[256];
+  struct list_elem* elem;
+  struct thread* thrd;
+  struct list *child = &thread_current()->child;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -38,10 +47,24 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  /* Kwak */
+  parsing_filename(file_name, parsing_out);
+  if (filesys_open(parsing_out) == NULL) return -1;
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (parsing_out, PRI_DEFAULT, start_process, fn_copy); // Kwak : change to parsing_out
+  sema_down(&thread_current()->load_lock); // Kwak : added to wait new thread load/init success  
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (fn_copy);
+
+  /* Kwak : wait process  */
+  for (elem = list_begin(child); elem!=list_end(child); elem = list_next(elem)) {
+    thrd = list_entry(elem, struct thread, child_elem);
+    if (thrd->flag == -1){
+        return process_wait(tid);
+    }
+  }
+
   return tid;
 }
 
@@ -54,18 +77,40 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
+  /* Kwak : parse the commend line to argv */
+  char *argv[128];
+  int argc = 0;
+  char *s=(char*)malloc(sizeof(char)*PGSIZE);
+  char *token, *parsing_out;
+
+  memcpy(s,file_name,PGSIZE);
+  token = strtok_r(s, " ", &parsing_out);
+  while (token != NULL) {
+      argv[argc] = token;
+      argc++;
+      token = strtok_r(NULL, " ", &parsing_out);
+  }
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (argv[0], &if_.eip, &if_.esp); // Kwak : change to argv[0]
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
-    thread_exit ();
+  sema_up(&thread_current()->parent->load_lock); // Kwak
+  if (!success) {
+    /* Old */
+    //thread_exit ();
+    /* Kwak */
+    thread_current()->flag = 1;
+    exit(-1);
+  }
 
+  inject_arg_to_stack(argv,argc,&if_.esp);
+  free(s);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -74,6 +119,18 @@ start_process (void *file_name_)
      and jump to it. */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
+}
+
+/* Kwak : parsing */
+void parsing_filename(char *src, char *dest) {
+    if (!src || !dest) return;
+    strlcpy(dest, src, strlen(src) + 1);
+    int i=0;
+    while (dest[i]!='\0') {
+        if (isspace((unsigned char) dest[i])) break;
+        i++;
+    }
+    dest[i] = '\0';
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -85,9 +142,26 @@ start_process (void *file_name_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
+/* Kwak */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
+  int exit_status;
+  struct thread* cur = thread_current();
+  struct thread* cur_thread = NULL;
+  struct list_elem* temp = list_begin(&cur->child);
+
+  while (temp != list_end(&cur->child)) {
+    cur_thread = list_entry(temp, struct thread, child_elem);
+    if (child_tid == cur_thread->tid) {
+      sema_down(&(cur_thread->child_lock));
+      exit_status = cur_thread->exit_status;
+      list_remove(&(cur_thread->child_elem));
+      sema_up(&(cur_thread->mem_lock));
+      return exit_status;
+    }
+    temp = list_next(temp);
+  }
   return -1;
 }
 
@@ -97,6 +171,30 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+
+  int i;
+  for(i = cur->cur_fd-1; i >= 2; i--) {
+    if (cur->fd[i] != NULL) {
+      close_proc_file(i);
+      cur->fd[i]=NULL;
+    }
+  }
+  cur->cur_fd = 2;
+
+  /* Handle child processes : Choi */
+  struct list_elem *e = list_begin(&cur->child);
+  while (e != list_end(&cur->child)) {
+    struct thread *child = list_entry(e, struct thread, child_elem);
+    e = list_next(e);
+    
+    if (child != NULL) {
+      sema_up(&child->child_lock);  
+      if (child->status == THREAD_BLOCKED) {
+        sema_up(&child->mem_lock);
+      }
+    }
+  }
+  /* Choi */
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -114,6 +212,48 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  /* Kwak */
+  sema_up(&(cur->child_lock));
+  sema_down(&(cur->mem_lock));
+}
+
+/* Kwak : pass arg to stack */
+#define ALIGN_DOWN(base, size) ((base) & - (size))
+#define PUSH(stack, value) { \
+    (stack) = (stack) - sizeof(value); \
+    *(typeof(value) *)(stack) = (value); \
+}
+
+void inject_arg_to_stack(char **argv, int argc, void **esp) {
+  int i;
+  uint32_t *argv_addr[128];
+
+  for (i=argc-1; i >= 0; i--) {
+      int argv_str_length = strlen(argv[i]) + 1;
+      *esp = (char *)(*esp) - argv_str_length;
+      strlcpy(*esp, argv[i], argv_str_length);
+      argv_addr[i] = (uint32_t)(*esp);
+  }
+
+  *esp = (void *)ALIGN_DOWN((uint32_t)(*esp), 4);
+
+  __asm__ volatile ("subl $4, %0\n\t"
+                    "movl $0, (%0)"
+                    : "=r" (*esp) : "0" (*esp));
+
+  for (i=argc-1; i >= 0; i--) {
+      PUSH(*esp, argv_addr[i]);
+  }
+  PUSH(*esp, (uint32_t)(*esp) + 4);
+  PUSH(*esp, argc);
+  PUSH(*esp, 0);
+}
+
+/* Kwak */
+void close_proc_file(int i) {
+  struct thread * cur = thread_current();
+  file_close(cur->fd[i]);
+  cur->fd[i] = NULL;
 }
 
 /* Sets up the CPU for running user code in the current

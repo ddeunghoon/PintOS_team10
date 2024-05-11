@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+/* Kwak */
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -96,6 +98,17 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    /* Kwak */
+    int exit_status;
+    int flag;
+    struct file *fd[128];
+    int cur_fd;
+    struct thread *parent;              /* Parent thread. */
+    struct list child;               
+    struct list_elem child_elem; 
+    struct semaphore child_lock;
+    struct semaphore mem_lock;
+    struct semaphore load_lock;
 #endif
 
     /* Owned by thread.c. */
